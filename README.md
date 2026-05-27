@@ -18,7 +18,20 @@ python3 make_gif.py [options] <image1> <image2> ...
 python3 make_gif.py [options] --glob "*.jpeg"
 ```
 
+## Sample images
+
+The `samples/` directory contains five CC0-licensed photos from [Lorem Picsum](https://picsum.photos) (800×600 px each), ready to use for testing.
+
+```bash
+python3 make_gif.py --folder samples --fps 2 --out animation.gif
+```
+
 ## Examples
+
+**All images in a folder (sorted by filename):**
+```bash
+python3 make_gif.py --folder samples --fps 2 --out animation.gif
+```
 
 **Basic — uniform 1 s per frame:**
 ```bash
@@ -68,6 +81,7 @@ python3 make_gif.py img_001.jpeg img_final.jpeg \
 | `--last-duration` | — | Override duration for the last frame |
 | `--durations S1 S2 …` | — | Explicit per-frame durations (must match frame count) |
 | `--fps` | — | Uniform timing via frames-per-second (overrides `--duration`) |
+| `--folder`, `-f` | — | Load all supported images from a directory (sorted by filename) |
 | `--glob`, `-g` | — | Collect frames via a glob pattern (sorted) |
 | `--width` | — | Scale all frames to this width; height auto-scaled |
 | `--target-mb` | — | Binary-search for the largest width under this file size (MB) |

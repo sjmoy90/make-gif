@@ -26,6 +26,7 @@ Examples:
 import argparse
 import glob as glob_module
 import io
+import os
 import sys
 from pathlib import Path
 
@@ -185,6 +186,7 @@ def resolve_durations(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build an animated GIF from images.")
     parser.add_argument("images", nargs="*", help="Input image files (in order)")
+    parser.add_argument("--folder", "-f", help="Directory of images; all supported files loaded in sorted order")
     parser.add_argument("--glob", "-g", help='Glob pattern, e.g. "img_*.jpeg"')
     parser.add_argument("--out", "-o", default="animation.gif", help="Output path (default: animation.gif)")
     parser.add_argument("--loop", "-l", type=int, default=0, help="Loop count; 0 = forever (default: 0)")
@@ -208,7 +210,23 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    IMAGE_EXTS = {".jpeg", ".jpg", ".png", ".gif", ".webp", ".bmp", ".tiff", ".tif"}
+
     paths: list[str] = list(args.images)
+
+    if args.folder:
+        folder = Path(args.folder)
+        if not folder.is_dir():
+            print(f"Error: {args.folder!r} is not a directory.", file=sys.stderr)
+            sys.exit(1)
+        folder_paths = sorted(
+            str(p) for p in folder.iterdir()
+            if p.suffix.lower() in IMAGE_EXTS
+        )
+        if not folder_paths:
+            print(f"No supported image files found in {args.folder!r}.", file=sys.stderr)
+            sys.exit(1)
+        paths = folder_paths + paths
 
     if args.glob:
         matched = sorted(glob_module.glob(args.glob))
