@@ -1,36 +1,43 @@
 #!/usr/bin/env python3
 """
-make_gif.py — build an animated GIF from a list of image files.
+make_gif.py — build an animated GIF from a sequence of images.
 
-Usage:
-    python make_gif.py [options] <image1> <image2> ...
-    python make_gif.py [options] --glob "*.jpeg"
+Frame sources (applied in this order, combined into one list):
+  --folder DIR    all supported images in DIR, ordered by --sort
+  --glob PATTERN  files matching a glob pattern, ordered alphabetically
+  positional args explicit files, in the order given
+
+Timing:
+  --duration SEC          uniform frame duration (default 1 s)
+  --last-duration SEC     override the last frame's duration
+  --durations S1 S2 ...   explicit per-frame durations
+  --fps N                 uniform timing via frames-per-second
+
+Sizing:
+  --width N       scale all frames to this width (height auto-scaled)
+  --target-mb N   binary-search for the largest width under N MB
 
 Examples:
-    # Uniform timing (2 fps):
-    python make_gif.py --glob "img_*.jpeg" --out animation.gif --fps 2
+    # All images in a folder at 2 fps:
+    python3 make_gif.py --folder samples --fps 2 --out animation.gif
 
-    # Each frame 1 s, last frame 3 s:
-    python make_gif.py img_001.jpeg img_002.jpeg img_final.jpeg \
-        --duration 1 --last-duration 3 --out animation.gif
+    # Folder sorted by last-modified time:
+    python3 make_gif.py --folder shots --sort mtime --fps 4 --out animation.gif
 
-    # Automatic resize to stay under 4.5 MB:
-    python make_gif.py img_001.jpeg img_final.jpeg \
+    # 1 s each, last frame 3 s, auto-resize to stay under 4.5 MB:
+    python3 make_gif.py img_001.jpeg img_002.jpeg img_final.jpeg \
         --duration 1 --last-duration 3 --target-mb 4.5 --out animation.gif
-
-    # Explicit width (height auto-scaled):
-    python make_gif.py img_001.jpeg img_final.jpeg \
-        --duration 1 --last-duration 3 --width 1200 --out animation.gif
 """
 
 import argparse
 import glob as glob_module
 import io
-import os
 import sys
 from pathlib import Path
 
 from PIL import Image, ImageColor
+
+IMAGE_EXTS = {".jpeg", ".jpg", ".png", ".webp", ".bmp", ".tiff", ".tif"}
 
 
 def resolve_color(color: str, default: str = "white") -> str:
@@ -42,12 +49,24 @@ def resolve_color(color: str, default: str = "white") -> str:
         return default
 
 
+def _sort_key(p: Path, sort: str):
+    if sort == "mtime":
+        return p.stat().st_mtime
+    if sort == "ctime":
+        st = p.stat()
+        # st_birthtime is macOS/BSD; fall back to st_mtime on Linux
+        return getattr(st, "st_birthtime", st.st_mtime)
+    return p.name  # default: alphabetical by filename
+
+
+def collect_folder(folder: Path, sort: str) -> list[str]:
+    images = [p for p in folder.iterdir() if p.suffix.lower() in IMAGE_EXTS]
+    images.sort(key=lambda p: _sort_key(p, sort))
+    return [str(p) for p in images]
+
+
 def load_images(paths: list[str]) -> list[Image.Image]:
-    frames = []
-    for p in paths:
-        img = Image.open(p).convert("RGBA")
-        frames.append(img)
-    return frames
+    return [Image.open(p).convert("RGBA") for p in paths]
 
 
 def fit_with_padding(img: Image.Image, target: tuple[int, int], bg: str = "white") -> Image.Image:
@@ -61,7 +80,6 @@ def fit_with_padding(img: Image.Image, target: tuple[int, int], bg: str = "white
 
 
 def scale_frames(frames: list[Image.Image], width: int) -> list[Image.Image]:
-    """Uniformly scale all frames so the first frame's width equals `width`."""
     orig_w, orig_h = frames[0].size
     if orig_w == width:
         return frames
@@ -158,10 +176,7 @@ def make_gif(
         out_path.write_bytes(data)
         size_mb = len(data) / 1024 / 1024
         total_s = sum(durations_ms) / 1000
-        print(
-            f"Saved {out_path}  "
-            f"({len(frames)} frames, {total_s:.1f}s total, {size_mb:.2f} MB)"
-        )
+        print(f"Saved {out_path}  ({len(frames)} frames, {total_s:.1f}s total, {size_mb:.2f} MB)")
 
 
 def resolve_durations(
@@ -184,22 +199,36 @@ def resolve_durations(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build an animated GIF from images.")
-    parser.add_argument("images", nargs="*", help="Input image files (in order)")
-    parser.add_argument("--folder", "-f", help="Directory of images; all supported files loaded in sorted order")
-    parser.add_argument("--glob", "-g", help='Glob pattern, e.g. "img_*.jpeg"')
+    parser = argparse.ArgumentParser(
+        description="Build an animated GIF from images.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("images", nargs="*", help="Input image files (used as-is, in the order given)")
+    parser.add_argument("--folder", "-f", metavar="DIR",
+                        help="Load all supported images from DIR; order controlled by --sort")
+    parser.add_argument("--sort", choices=["name", "mtime", "ctime"], default="name",
+                        help="Sort order for --folder images: "
+                             "name=alphabetical by filename (default), "
+                             "mtime=last modified, "
+                             "ctime=creation time (macOS/BSD; falls back to mtime on Linux)")
+    parser.add_argument("--glob", "-g", metavar="PATTERN",
+                        help='Glob pattern for frames, e.g. "img_*.jpeg" (sorted alphabetically)')
     parser.add_argument("--out", "-o", default="animation.gif", help="Output path (default: animation.gif)")
-    parser.add_argument("--loop", "-l", type=int, default=0, help="Loop count; 0 = forever (default: 0)")
-    parser.add_argument("--no-resize", action="store_true", help="Skip resizing frames to the first frame's size")
-    parser.add_argument("--bg", default="white", help="Padding color for letterboxed frames (default: white)")
+    parser.add_argument("--loop", "-l", type=int, default=0, help="Loop count; 0 = loop forever (default: 0)")
+    parser.add_argument("--no-resize", action="store_true",
+                        help="Skip padding/resizing frames to match the first frame's dimensions")
+    parser.add_argument("--bg", default="white",
+                        help="Padding color for frames with a different aspect ratio "
+                             "(CSS color name or hex, default: white; falls back to white if invalid)")
 
     timing = parser.add_mutually_exclusive_group()
-    timing.add_argument("--fps", type=float, help="Uniform frames per second")
+    timing.add_argument("--fps", type=float, help="Uniform frame rate (frames per second)")
     timing.add_argument("--durations", type=float, nargs="+", metavar="SEC",
-                        help="Per-frame durations in seconds (must match frame count)")
+                        help="Per-frame durations in seconds (count must match total frames)")
 
     parser.add_argument("--duration", type=float, default=1.0,
-                        help="Uniform frame duration in seconds (default: 1.0); ignored when --fps or --durations is set")
+                        help="Uniform frame duration in seconds (default: 1.0); "
+                             "ignored when --fps or --durations is set")
     parser.add_argument("--last-duration", type=float, dest="last_duration",
                         help="Override duration for the last frame (seconds)")
 
@@ -210,30 +239,30 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    IMAGE_EXTS = {".jpeg", ".jpg", ".png", ".gif", ".webp", ".bmp", ".tiff", ".tif"}
-
-    paths: list[str] = list(args.images)
+    paths: list[str] = []
 
     if args.folder:
         folder = Path(args.folder)
         if not folder.is_dir():
             print(f"Error: {args.folder!r} is not a directory.", file=sys.stderr)
             sys.exit(1)
-        folder_paths = sorted(
-            str(p) for p in folder.iterdir()
-            if p.suffix.lower() in IMAGE_EXTS
-        )
+        folder_paths = collect_folder(folder, args.sort)
         if not folder_paths:
             print(f"No supported image files found in {args.folder!r}.", file=sys.stderr)
             sys.exit(1)
-        paths = folder_paths + paths
+        print(f"Found {len(folder_paths)} image(s) in {args.folder!r} (sorted by {args.sort}):")
+        for p in folder_paths:
+            print(f"  {Path(p).name}")
+        paths.extend(folder_paths)
 
     if args.glob:
         matched = sorted(glob_module.glob(args.glob))
         if not matched:
             print(f"No files matched: {args.glob}", file=sys.stderr)
             sys.exit(1)
-        paths = matched + paths
+        paths.extend(matched)
+
+    paths.extend(args.images)
 
     if not paths:
         parser.print_help()
