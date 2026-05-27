@@ -1,6 +1,6 @@
 # make_gif
 
-A command-line utility to build an animated GIF from a sequence of images, with support for per-frame timing, aspect-ratio-safe padding, and automatic resolution scaling to hit a target file size.
+Command-line utility to build an animated GIF from a sequence of images.
 
 ## Requirements
 
@@ -11,113 +11,136 @@ A command-line utility to build an animated GIF from a sequence of images, with 
 pip install -r requirements.txt
 ```
 
-## Usage
+---
 
-```
-python3 make_gif.py [options] [image1 image2 ...]
-```
-
-Frame sources are combined in this order: `--folder` → `--glob` → positional arguments.
-
-## Sample images
-
-The `samples/` directory contains five CC0-licensed photos from [Lorem Picsum](https://picsum.photos) (800×600 px each), ready to use for testing:
+## Quick start
 
 ```bash
 python3 make_gif.py --folder samples --fps 2 --out animation.gif
 ```
 
-## Examples
+The `samples/` directory contains five CC0-licensed photos from [Lorem Picsum](https://picsum.photos) (800×600 px each).
 
-**All images in a folder (sorted by filename):**
+---
+
+## A worked example
+
 ```bash
-python3 make_gif.py --folder samples --fps 2 --out animation.gif
+python3 make_gif.py \
+  img_001.jpeg img_002.jpeg img_003.jpeg img_004.jpeg img_005.jpeg img_final.jpeg \
+  --duration 1 --last-duration 3 \
+  --bg linen \
+  --target-mb 4.0 \
+  --out animation.gif
 ```
 
-**Folder sorted by last-modified time:**
+| Flag | What it does here |
+|---|---|
+| `img_001.jpeg … img_final.jpeg` | Six frames, in this order |
+| `--duration 1` | Each frame shows for 1 second… |
+| `--last-duration 3` | …except the last, which stays for 3 seconds |
+| `--bg linen` | `img_final.jpeg` is portrait; the script fits it inside the landscape canvas and fills the empty sides with linen |
+| `--target-mb 4.0` | Binary-searches for the largest resolution that keeps the file under 4 MB |
+| `--out animation.gif` | Output filename |
+
+---
+
+## Specifying frames
+
+You have three ways to specify input images — they can be combined, and are always applied in this order: folder → glob → explicit files.
+
+**From a folder** — loads every supported image in the directory, sorted by filename:
+```bash
+python3 make_gif.py --folder shots --fps 4 --out animation.gif
+```
+
+If your filenames aren't meaningful, sort by timestamp instead:
 ```bash
 python3 make_gif.py --folder shots --sort mtime --fps 4 --out animation.gif
-```
-
-**Folder sorted by creation time:**
-```bash
 python3 make_gif.py --folder shots --sort ctime --fps 4 --out animation.gif
 ```
+`ctime` uses file creation time on macOS; falls back to last-modified on Linux.
 
-**Glob pattern:**
+**By glob pattern** — sorted alphabetically:
 ```bash
-python3 make_gif.py --glob "img_*.jpeg" --fps 4 --out animation.gif
+python3 make_gif.py --glob "frame_*.jpeg" --fps 4 --out animation.gif
 ```
 
-**Explicit files, 1 s each, last frame held for 3 s:**
+**Explicit files** — in exactly the order you type them:
 ```bash
-python3 make_gif.py img_001.jpeg img_002.jpeg img_final.jpeg \
-  --duration 1 --last-duration 3 --out animation.gif
+python3 make_gif.py intro.jpeg slide1.jpeg slide2.jpeg outro.jpeg --out animation.gif
 ```
 
-**Explicit per-frame durations:**
+---
+
+## Timing
+
+All frames the same speed:
 ```bash
-python3 make_gif.py img_001.jpeg img_002.jpeg img_final.jpeg \
-  --durations 0.5 0.5 3 --out animation.gif
+--fps 4            # 4 frames per second
+--duration 0.5     # 0.5 seconds per frame (same thing)
 ```
 
-**Automatically resize to stay under a target file size:**
+Hold the last frame longer:
 ```bash
-python3 make_gif.py --folder samples \
-  --duration 1 --target-mb 4.5 --out animation.gif
+--duration 1 --last-duration 5
 ```
 
-**Set an explicit output width (height auto-scaled):**
+Full control per frame (count must match number of frames):
 ```bash
-python3 make_gif.py --folder samples --width 1200 --out animation.gif
+--durations 0.5 0.5 0.5 3
 ```
 
-**Custom padding color for mixed-aspect-ratio frames:**
+---
+
+## Sizing
+
+Let the script find the right resolution automatically:
 ```bash
-python3 make_gif.py img_001.jpeg img_final.jpeg \
-  --duration 1 --last-duration 3 --bg black --out animation.gif
+--target-mb 4.0    # binary-searches for the largest width under 4 MB
 ```
 
-## Options
+Or set a fixed width (height is scaled proportionally):
+```bash
+--width 1200
+```
 
-### Frame sources
+---
 
-| Flag | Description |
-|---|---|
-| `positional` | Explicit image files, used in the order given |
-| `--folder DIR`, `-f` | Load all supported images from a directory; order set by `--sort` |
-| `--sort` | Sort order for `--folder`: `name` (alphabetical by filename, default), `mtime` (last modified), `ctime` (creation time — macOS/BSD only; falls back to `mtime` on Linux) |
-| `--glob PATTERN`, `-g` | Glob pattern (sorted alphabetically by filename) |
+## Mixed aspect ratios
 
-If images in a folder have arbitrary filenames, use `--sort mtime` or `--sort ctime` to order them by timestamp rather than name.
+When frames have different aspect ratios, each frame is scaled to fit inside the first frame's canvas, and the empty space is filled with `--bg` (default: white). Any CSS color name or hex code works; unrecognized values fall back to white with a warning.
 
-### Timing
+```bash
+--bg linen
+--bg "#2b2b2b"
+--bg black
+```
+
+---
+
+## All options
+
+```
+python3 make_gif.py [options] [image ...]
+```
 
 | Flag | Default | Description |
 |---|---|---|
+| `--folder DIR`, `-f` | — | Load all images from a directory |
+| `--sort name\|mtime\|ctime` | `name` | Sort order for `--folder` |
+| `--glob PATTERN`, `-g` | — | Glob pattern (sorted alphabetically) |
+| `--out PATH`, `-o` | `animation.gif` | Output file |
+| `--fps N` | — | Uniform frame rate |
 | `--duration SEC` | `1.0` | Uniform frame duration in seconds |
-| `--last-duration SEC` | — | Override duration for the last frame |
-| `--durations S1 S2 …` | — | Explicit per-frame durations (count must match total frames) |
-| `--fps N` | — | Uniform timing via frames-per-second (overrides `--duration`) |
+| `--last-duration SEC` | — | Override the last frame's duration |
+| `--durations S1 S2 …` | — | Per-frame durations (must match frame count) |
+| `--target-mb N` | — | Auto-resize to stay under N MB |
+| `--width N` | — | Fixed output width (height auto-scaled) |
+| `--bg COLOR` | `white` | Padding color for aspect-ratio mismatches |
+| `--loop N`, `-l` | `0` | Loop count; 0 = loop forever |
+| `--no-resize` | off | Skip padding/resizing frames |
 
-### Sizing
+---
 
-| Flag | Description |
-|---|---|
-| `--width N` | Scale all frames to this width; height auto-scaled |
-| `--target-mb N` | Binary-search for the largest width that keeps the GIF under N MB |
-
-### Output
-
-| Flag | Default | Description |
-|---|---|---|
-| `--out PATH`, `-o` | `animation.gif` | Output file path |
-| `--loop N`, `-l` | `0` | Loop count; `0` = loop forever |
-| `--bg COLOR` | `white` | Padding color for frames with a different aspect ratio (CSS color name or hex; falls back to white if unrecognized) |
-| `--no-resize` | off | Skip padding/resizing frames to match the first frame's dimensions |
-
-## Notes
-
-- When frames have different aspect ratios, the script letterboxes them onto a canvas matching the first frame's dimensions, padding with `--bg`.
-- `--target-mb` runs up to 12 binary-search iterations and prints the size at each step.
-- Developed and tested on macOS with Python 3.12.12 and Pillow 12.1.1.
+Developed and tested on macOS · Python 3.12.12 · Pillow 12.1.1
